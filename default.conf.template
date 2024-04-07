@@ -11,7 +11,7 @@ server {
     
     location /openai {
        proxy_buffering off;
-       proxy_pass $OPENAI_ENDPOINT/openai;
+       proxy_pass $http_x-openai-backendurl;
     }
 
     set $req_header "";
