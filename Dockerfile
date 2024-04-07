@@ -1,7 +1,7 @@
-FROM ubuntu:20.04
+FROM python:3.12.0-bullseye
 
 # Setup SSH on server
-RUN apt-get -y install openssh-server
+RUN apt-get update && apt-get -y install openssh-server
 RUN echo "root:Docker!" | chpasswd
 RUN ssh-keygen -A
 COPY ./sshd_config /etc/ssh/.
