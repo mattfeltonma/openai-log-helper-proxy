@@ -5,7 +5,7 @@ RUN apt-get update && apt-get -y install openssh-server
 RUN echo "root:Docker!" | chpasswd
 RUN ssh-keygen -A
 COPY ./sshd_config /etc/ssh/.
-EXPOSE 2222
+EXPOSE 2222 80
 
 RUN apt-get update && apt-get -y install --no-install-recommends wget gnupg ca-certificates gcc gettext-base && \
     curl -fsSL https://openresty.org/package/pubkey.gpg | gpg --dearmor > /usr/share/keyrings/openresty.gpg && \
