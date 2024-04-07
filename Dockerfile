@@ -4,7 +4,7 @@ FROM python:3.12.0-bullseye
 RUN apt-get update && apt-get -y install --no-install-recommends wget gnupg ca-certificates gcc gettext-base && \
     curl -fsSL https://openresty.org/package/pubkey.gpg | gpg --dearmor > /usr/share/keyrings/openresty.gpg && \
     codename=`grep -Po 'VERSION="[0-9]+ \(\K[^)]+' /etc/os-release` && \
-    echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/debian $codename openresty" | tee /etc/apt/sources.list.d/openresty.list > /dev/null &&
+    echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/debian $codename openresty" | tee /etc/apt/sources.list.d/openresty.list > /dev/null && \
     apt-get update && \
     apt-get -y install openresty && \
     rm -rf /var/lib/apt/lists/* && \
