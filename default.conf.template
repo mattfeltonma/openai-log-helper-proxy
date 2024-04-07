@@ -10,6 +10,7 @@ server {
     access_log /dev/stdout;
     
     location /openai {
+       resolver 168.63.129.16
        proxy_buffering off;
        proxy_pass $http_x_openai_backendurl;
     }
