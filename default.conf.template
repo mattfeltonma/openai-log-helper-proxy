@@ -16,6 +16,7 @@ server {
     
     location /openai {
        proxy_buffering off;
+       resolver 127.0.0.11;
        set $path $http_x_openai_backendurl;
        proxy_pass $path/openai;
     }
