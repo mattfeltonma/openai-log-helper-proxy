@@ -14,9 +14,9 @@ server {
     access_log /var/log/nginx_proxy.log proxy_log;
     access_log /dev/stdout;
     
-    location /openai {
+    location ~ ^/openai/(.*)$ {
        proxy_buffering off;
-       resolver 127.0.0.11;
+       resolver $DNS_SERVER;
        set $path $http_x_openai_backendurl;
        proxy_pass $path/openai;
     }
