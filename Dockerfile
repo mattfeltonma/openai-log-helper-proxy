@@ -1,12 +1,5 @@
 FROM python:3.12.0-bullseye
 
-# Setup SSH on server
-RUN apt-get update && apt-get -y install openssh-server
-RUN echo "root:Docker!" | chpasswd
-RUN ssh-keygen -A
-COPY ./sshd_config /etc/ssh/.
-EXPOSE 2222 80
-
 RUN apt-get update && apt-get -y install --no-install-recommends wget gnupg ca-certificates gcc gettext-base && \
     curl -fsSL https://openresty.org/package/pubkey.gpg | gpg --dearmor > /usr/share/keyrings/openresty.gpg && \
     codename=`grep -Po 'VERSION="[0-9]+ \(\K[^)]+' /etc/os-release` && \
