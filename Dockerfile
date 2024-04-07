@@ -1,4 +1,4 @@
-FROM python:3.12.0-bullseye
+FROM ubuntu:20.04
 
 # Setup SSH on server
 RUN apt-get -y install openssh-server
