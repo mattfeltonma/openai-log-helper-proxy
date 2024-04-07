@@ -25,12 +25,12 @@ RUN mkdir -p /etc/nginx/conf.d
 RUN mkdir -p /etc/nginx/templates
 COPY default.conf.template /etc/nginx/templates
 
- 
 
 COPY entry.sh /opt
 COPY loghelper/ /opt/loghelper
 
 RUN touch /var/log/nginx_access.log
+RUN touch /var/log/nginx_proxy.log
 RUN touch /var/log/loghelper_openai.log
 
 ENTRYPOINT [ "bash", "/opt/entry.sh" ]
