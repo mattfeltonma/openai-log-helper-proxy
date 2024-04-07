@@ -16,7 +16,8 @@ server {
     
     location /openai {
        proxy_buffering off;
-       proxy_pass https://aoai-demo-1.openai.azure.com/openai;
+       set $path $http_x_openai_backendurl;
+       proxy_pass $path/openai;
     }
 
     set $req_header "";
