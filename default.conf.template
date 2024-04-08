@@ -18,7 +18,7 @@ server {
        proxy_buffering off;
        resolver $DNS_SERVER;
        set $path $http_x_openai_backendurl;
-       proxy_pass $path/openai;
+       proxy_pass $path/openai/$1$is_args$args;
     }
 
     set $req_header "";
