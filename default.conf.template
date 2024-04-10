@@ -1,24 +1,17 @@
-log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for" "$http_x_openai_backendurl" ||| "$req_header" ||| "$resp_header" ||| "$resp_body"';
+log_format logger-json escape=json '{"source": "nginx","time": $msec,"nginx_response_time": $request_time,"aoai_response_time": $upstream_response_time,"resp_body_size": $body_bytes_sent,"host": "$http_host","address": "$remote_addr","request_length": $request_length,"method": "$request_method","uri": "$request_uri","status": $status,"user_agent": "$http_user_agent","resp_time": $request_time,"upstream_addr": "$upstream_addr","request_headers": "$req_header","response_headers": "$resp_header","request_body": "$request_body","response_body": "$resp_body}';
 
-log_format  proxy_log  '[$time_local] $remote_addr - $remote_user "$host$request_uri" '
-                      '$status $body_bytes_sent "$http_referer" '
-                      '"$http_user_agent" "$http_x_forwarded_for"'
-                      ' Proxy: "$proxy_host" "$upstream_addr"';
 server {
     listen 80;
     listen [::]:80;
 
-    access_log /var/log/nginx_access.log main;
-    access_log /var/log/nginx_proxy.log proxy_log;
+    access_log /var/log/nginx_access.log logger-json;
     access_log /dev/stdout;
     
     location ~ ^/openai/(.*)$ {
        proxy_buffering off;
        resolver $DNS_SERVER;
-       set $path $http_x_openai_backendurl;
-       proxy_pass $path/openai/$1$is_args$args;
+       set $path $http_x_openai_backend;
+       proxy_pass https://$path/openai/$1$is_args$args;
     }
 
     set $req_header "";
@@ -26,8 +19,12 @@ server {
     header_filter_by_lua_block {
         local h = ngx.req.get_headers()
         for k, v in pairs(h) do
-            -- ngx.log(ngx.CRIT, "Got Req header "..k..": "..v..";")
-            ngx.var.req_header = ngx.var.req_header .. k .. ": " .. v .. " | ";
+            -- Check if the header is Authorization and starts with "Bearer "
+            if k == "authorization" and string.sub(v, 1, 7) == "Bearer " then
+                ngx.var.req_header = ngx.var.req_header .. k .. ": Bearer" .. " | ";
+            else
+                ngx.var.req_header = ngx.var.req_header .. k .. ": " .. v .. " | ";
+            end
         end
         local h2 = ngx.resp.get_headers()
         for k2, v2 in pairs(h2) do
@@ -39,6 +36,6 @@ server {
     set $resp_body "";
     body_filter_by_lua_block {
         -- ngx.log(ngx.CRIT,ngx.arg[1])
-        ngx.var.resp_body = ngx.var.resp_body .. " " .. ngx.arg[1];
+        ngx.var.resp_body = ngx.var.resp_body .. ngx.arg[1];
     } 
 }
