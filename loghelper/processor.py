@@ -9,7 +9,7 @@ import asyncio
 from azure.eventhub import EventData
 from azure.eventhub.aio import EventHubProducerClient
 
-logging.basicConfig(#filename="/var/log/loghelper_openai.log",
+logging.basicConfig(filename="/var/log/loghelper_openai.log",
                     filemode='a',
                     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
                     datefmt='%H:%M:%S',
@@ -46,6 +46,7 @@ def parse_headers(headers_str):
             headers[key] = value
     logging.info("Headers parsed...")
     return headers
+
 
 def parse_response_body(body_str):
     logging.info("Parsing response body...")
@@ -103,72 +104,76 @@ async def send_to_event_hub(event: EventData):
 
 
 def main():
-    log_file_path = "sample-streaming.log"
+    log_file_path = "/var/log/nginx_access.log"
     with open(log_file_path, "r") as log_file:
-        # for line in follow(log_file):
-        try:
-            unprocessed_log_data = log_file.read()
-            
-            # Cleanup the logs
-            json_log_data = cleanup_raw_logs(unprocessed_log_data)
-            
-            # Extract the prompt from the request body
-            prompt = json.loads(json_log_data["request_body"])[
-                'messages'][0]['content']
-            
-            # Process completion
-            if json_log_data['status'] == 200:
-                logging.info('Detected 200 response...')
-            
-                # Process the streaming completion for logging
-                if 'stream' in json.loads(json_log_data['request_body']):
-                    logging.info('Detected streaming completion...')
-                    streaming = "true"
-                    
-                    # Parse the response body to consolidate the events and extract the completion
-                    response_body = json_log_data['response_body']
-                    completion = parse_response_body(response_body)
+        for line in follow(log_file):
+            try:
+                unprocessed_log_data = log_file.read()
 
-                    # Calculate the number of tokens in the prompt and response
-                    prompt_tokens = num_tokens_from_string(prompt, "cl100k_base")
-                    completion_tokens = num_tokens_from_string(
-                        completion, "cl100k_base")
-                    
-                # Process the non-streaming completion for logging
-                else:
-                    logging.info('Detected non-streaming completion...')
-                    streaming = "false"
-                    
-                    # Extract the completion from the response body
-                    response_body = json.loads(json_log_data['response_body'])['choices'][0]['message']['content']
-                    completion = response_body
-                    
-                    # Extract tokens from reponse
-                    prompt_tokens = json.loads(json_log_data["response_body"])['usage']['prompt_tokens']
-                    completion_tokens = json.loads(json_log_data["response_body"])['usage']['completion_tokens']
-                    total_tokens = json.loads(json_log_data["response_body"])['usage']['total_tokens']
-                    
+                # Cleanup the logs
+                json_log_data = cleanup_raw_logs(unprocessed_log_data)
 
-            # Parse the headers
-            request_headers = parse_headers(json_log_data["request_headers"])
-            response_headers = parse_headers(json_log_data["response_headers"])
+                # Extract the prompt from the request body
+                prompt = json.loads(json_log_data["request_body"])[
+                    'messages'][0]['content']
 
-            # Send the event to Event Hub
-            if completion_tokens > 0:
-                event = EventData(json.dumps({
-                    # Add the log data to the event
-                    "Type": "openai-logger",
-                    "req_headers": request_headers,
-                    "resp_headers": response_headers,
-                    "prompt": prompt,
-                    "completion": completion,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": prompt_tokens + completion_tokens
-                }).encode("utf-8"))
-                asyncio.run(send_to_event_hub(event))
-        except Exception as e:
-            logging.error(f"Error in tailing: {e}")
+                # Process completion
+                if json_log_data['status'] == 200:
+                    logging.info('Detected 200 response...')
+
+                    # Process the streaming completion for logging
+                    if 'stream' in json.loads(json_log_data['request_body']):
+                        logging.info('Detected streaming completion...')
+                        streaming = "true"
+
+                        # Parse the response body to consolidate the events and extract the completion
+                        response_body = json_log_data['response_body']
+                        completion = parse_response_body(response_body)
+
+                        # Calculate the number of tokens in the prompt and response
+                        prompt_tokens = num_tokens_from_string(
+                            prompt, "cl100k_base")
+                        completion_tokens = num_tokens_from_string(
+                            completion, "cl100k_base")
+
+                    # Process the non-streaming completion for logging
+                    else:
+                        logging.info('Detected non-streaming completion...')
+                        streaming = "false"
+
+                        # Extract the completion from the response body
+                        response_body = json.loads(json_log_data['response_body'])[
+                            'choices'][0]['message']['content']
+                        completion = response_body
+
+                        # Extract tokens from reponse
+                        prompt_tokens = json.loads(json_log_data["response_body"])[
+                            'usage']['prompt_tokens']
+                        completion_tokens = json.loads(json_log_data["response_body"])[
+                            'usage']['completion_tokens']
+                        total_tokens = json.loads(json_log_data["response_body"])[
+                            'usage']['total_tokens']
+
+                # Parse the headers
+                request_headers = parse_headers(json_log_data["request_headers"])
+                response_headers = parse_headers(json_log_data["response_headers"])
+
+                # Send the event to Event Hub
+                if completion_tokens > 0:
+                    event = EventData(json.dumps({
+                        # Add the log data to the event
+                        "Type": "openai-logger",
+                        "req_headers": request_headers,
+                        "resp_headers": response_headers,
+                        "prompt": prompt,
+                        "completion": completion,
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens
+                    }).encode("utf-8"))
+                    asyncio.run(send_to_event_hub(event))
+            except Exception as e:
+                logging.error(f"Error in tailing: {e}")
 
 
 if __name__ == "__main__":
