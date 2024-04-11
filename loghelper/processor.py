@@ -1,4 +1,3 @@
-
 import os
 import time
 import logging
@@ -9,11 +8,12 @@ import asyncio
 from azure.eventhub import EventData
 from azure.eventhub.aio import EventHubProducerClient
 
-logging.basicConfig(filename="/var/log/loghelper_openai.log",
-                    filemode='a',
-                    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-                    datefmt='%H:%M:%S',
-                    level=logging.DEBUG)
+logging.basicConfig(
+    filename="/var/log/loghelper_openai.log",
+    filemode='a',
+    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+    datefmt='%H:%M:%S',
+    level=logging.DEBUG)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ def main():
     with open(log_file_path, "r") as log_file:
         for line in follow(log_file):
             try:
-                unprocessed_log_data = log_file.read()
+                unprocessed_log_data = line.strip()
 
                 # Cleanup the logs
                 json_log_data = cleanup_raw_logs(unprocessed_log_data)
@@ -166,6 +166,7 @@ def main():
                         "req_headers": request_headers,
                         "resp_headers": response_headers,
                         "prompt": prompt,
+                        "streaming": streaming,
                         "completion": completion,
                         "prompt_tokens": prompt_tokens,
                         "completion_tokens": completion_tokens,
