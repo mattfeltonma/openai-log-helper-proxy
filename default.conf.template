@@ -1,4 +1,4 @@
-log_format logger-json escape=json '{"source": "nginx","time": $msec,"nginx_response_time": $request_time,"aoai_response_time": $upstream_response_time,"resp_body_size": $body_bytes_sent,"host": "$http_host","address": "$remote_addr","request_length": $request_length,"method": "$request_method","uri": "$request_uri","status": $status,"user_agent": "$http_user_agent","resp_time": $request_time,"upstream_addr": "$upstream_addr","request_headers": "$req_header","response_headers": "$resp_header","request_body": "$request_body","response_body": "$resp_body}';
+log_format logger-json escape=json '{"source": "nginx","time": $msec,"resp_body_size": $body_bytes_sent,"host": "$http_host","address": "$remote_addr","request_length": $request_length,"method": "$request_method","uri": "$request_uri","status": $status,"user_agent": "$http_user_agent","resp_time": $request_time,"upstream_addr": "$upstream_addr","request_headers": "$req_header","response_headers": "$resp_header","request_body": "$request_body","response_body": "$resp_body}';
 
 server {
     listen 80;
@@ -8,10 +8,11 @@ server {
     access_log /dev/stdout;
     
     location ~ ^/openai/(.*)$ {
-       proxy_buffering off;
-       resolver $DNS_SERVER;
-       set $path $http_x_openai_backend;
-       proxy_pass https://$path/openai/$1$is_args$args;
+
+        proxy_buffering off;
+        resolver $DNS_SERVER;
+        set $path $http_x_openai_backend;
+        proxy_pass https://$path/openai/$1$is_args$args;
     }
 
     set $req_header "";
