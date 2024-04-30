@@ -5,17 +5,39 @@ import tiktoken
 import re
 import json
 import asyncio
+import sys
+import uuid
 from azure.eventhub import EventData
 from azure.eventhub.aio import EventHubProducerClient
+from opentelemetry._logs import set_logger_provider
+from opentelemetry.sdk._logs import (
+    LoggerProvider,
+    LoggingHandler,
+)
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from azure.monitor.opentelemetry.exporter import AzureMonitorLogExporter
 
+# Configure an OpenTelemetry logger with support to send to Azure Monitor
+logger_provider = LoggerProvider()
+set_logger_provider(logger_provider)
+exporter = AzureMonitorLogExporter.from_connection_string(
+    os.environ.get("APPLICATION_INSIGHTS_CONNECTION_STRING")
+)
+logger_provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
+opentelemetry_handler = LoggingHandler()
+
+# Create 
 logging.basicConfig(
-    filename="/var/log/loghelper_openai.log",
-    filemode='a',
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
     datefmt='%H:%M:%S',
-    level=logging.DEBUG)
+    handlers=[
+        opentelemetry_handler,
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 EVENT_HUB_CONNECTION_STR = os.environ.get("EVENT_HUB_CONNECTION_STR")
 EVENT_HUB_NAME = os.environ.get("EVENT_HUB_NAME")
@@ -24,32 +46,18 @@ producer = EventHubProducerClient.from_connection_string(
     conn_str=EVENT_HUB_CONNECTION_STR, eventhub_name=EVENT_HUB_NAME,
 )
 
-
-def cleanup_raw_logs(unprocessed_log_data):
-    # Fix missing double quotes in the JSON
-    logging.info("Processing raw logs and cleaning them up...")
-    pattern = re.compile(r'{"source":.*?\\n}$', re.DOTALL)
-    match = re.search(pattern, unprocessed_log_data)
-    matched_data = match.group(0)
-    processed_log_data = matched_data[:-1] + '"}'
-    json_log_data = json.loads(processed_log_data)
-    logging.info("Cleanup complete...")
-    return json_log_data
-
-
 def parse_headers(headers_str):
-    logging.info("Parsing headers...")
+    logger.debug("Parsing headers...")
     headers = {}
     for header in headers_str.split(" | "):
         if header != "":
             key, value = header.split(": ", 1)
             headers[key] = value
-    logging.info("Headers parsed...")
+    logger.debug("Headers parsed...")
     return headers
 
-
 def parse_response_body(body_str):
-    logging.info("Parsing response body...")
+    logger.debug("Parsing response body...")
     cleaned_body_str = re.sub(r'\[DONE\]', '', body_str)
     entries = []
     response = ""
@@ -64,15 +72,15 @@ def parse_response_body(body_str):
                     if 'content' in entry['choices'][0]['delta']:
                         response = response + \
                             entry['choices'][0]['delta']['content']
-    logging.info("Response body parsed...")
+    logger.debug("Response body parsed...")
     return (response)
 
 
 def num_tokens_from_string(string: str, encoding_name: str) -> int:
-    logging.info("Calculating number of tokens...")
+    logging.debug("Calculating number of tokens...")
     encoding = tiktoken.get_encoding(encoding_name)
     num_tokens = len(encoding.encode(string))
-    logging.info("Number of tokens calculated...")
+    logger.debug("Number of tokens calculated...")
     return num_tokens
 
 # https://medium.com/@aliasav/how-follow-a-file-in-python-tail-f-in-python-bca026a901cf
@@ -96,11 +104,11 @@ def follow(f):
 
 
 async def send_to_event_hub(event: EventData):
-    logging.info("!!! send to event hub start !!!")
+    logger.info("Logging event being packaged...")
     event_batch = await producer.create_batch()
     event_batch.add(event)
     await producer.send_batch(event_batch)
-    logging.info("!!! send to event hub complete !!!")
+    logger.info("Logging event successfully delivered...")
 
 
 def main():
@@ -108,10 +116,10 @@ def main():
     with open(log_file_path, "r") as log_file:
         for line in follow(log_file):
             try:
-                unprocessed_log_data = line.strip()
+                raw_log_data = line.strip()
 
-                # Cleanup the logs
-                json_log_data = cleanup_raw_logs(unprocessed_log_data)
+                # Create JSON object from log entry
+                json_log_data = json.loads(raw_log_data)
 
                 # Extract the prompt from the request body
                 prompt = json.loads(json_log_data["request_body"])[
@@ -119,11 +127,14 @@ def main():
 
                 # Process completion
                 if json_log_data['status'] == 200:
-                    logging.info('Detected 200 response...')
+                    logger.debug('Detected 200 response...')
+
+                    # Generate GUID for message to uniquely identify it
+                    message_guid = str(uuid.uuid4())
 
                     # Process the streaming completion for logging
                     if 'stream' in json.loads(json_log_data['request_body']):
-                        logging.info('Detected streaming completion...')
+                        logger.info('Detected streaming completion...')
                         streaming = "true"
 
                         # Parse the response body to consolidate the events and extract the completion
@@ -138,7 +149,7 @@ def main():
 
                     # Process the non-streaming completion for logging
                     else:
-                        logging.info('Detected non-streaming completion...')
+                        logger.info('Detected non-streaming completion...')
                         streaming = "false"
 
                         # Extract the completion from the response body
@@ -151,8 +162,6 @@ def main():
                             'usage']['prompt_tokens']
                         completion_tokens = json.loads(json_log_data["response_body"])[
                             'usage']['completion_tokens']
-                        total_tokens = json.loads(json_log_data["response_body"])[
-                            'usage']['total_tokens']
 
                 # Parse the headers
                 request_headers = parse_headers(json_log_data["request_headers"])
@@ -163,6 +172,7 @@ def main():
                     event = EventData(json.dumps({
                         # Add the log data to the event
                         "Type": "openai-logger",
+                        "message_guid": message_guid,
                         "req_headers": request_headers,
                         "resp_headers": response_headers,
                         "prompt": prompt,
@@ -170,7 +180,9 @@ def main():
                         "completion": completion,
                         "prompt_tokens": prompt_tokens,
                         "completion_tokens": completion_tokens,
-                        "total_tokens": prompt_tokens + completion_tokens
+                        "total_tokens": prompt_tokens + completion_tokens,
+                        "client_ip": json_log_data["address"],
+                        "response_time": json_log_data["resp_time"]
                     }).encode("utf-8"))
                     asyncio.run(send_to_event_hub(event))
             except Exception as e:
@@ -178,7 +190,5 @@ def main():
 
 
 if __name__ == "__main__":
-    logger.info("start main...")
     asyncio.run(main())
     main()
-    logger.info("stop main...")
