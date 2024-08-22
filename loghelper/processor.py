@@ -75,7 +75,6 @@ def parse_response_body(body_str):
     logger.debug("Response body parsed...")
     return (response)
 
-
 def num_tokens_from_string(string: str, encoding_name: str) -> int:
     logging.debug("Calculating number of tokens...")
     encoding = tiktoken.get_encoding(encoding_name)
@@ -84,8 +83,6 @@ def num_tokens_from_string(string: str, encoding_name: str) -> int:
     return num_tokens
 
 # https://medium.com/@aliasav/how-follow-a-file-in-python-tail-f-in-python-bca026a901cf
-
-
 def follow(f):
     '''generator function that yields new lines in a file
     '''
@@ -99,9 +96,7 @@ def follow(f):
         if not line:
             time.sleep(0.1)
             continue
-
         yield line
-
 
 async def send_to_event_hub(event: EventData):
     logger.info("Logging event being packaged...")
@@ -122,8 +117,10 @@ def main():
                 json_log_data = json.loads(raw_log_data)
 
                 # Extract the prompt from the request body
-                prompt = json.loads(json_log_data["request_body"])[
-                    'messages'][0]['content']
+                prompt = json.dumps(json.loads(json_log_data["request_body"])[
+                    'messages'][0])
+                
+                prompt = prompt.replace(" ","")
 
                 # Process completion
                 if json_log_data['status'] == 200:
