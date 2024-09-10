@@ -162,5 +162,14 @@ cython_debug/
 default.conf
 .env
 
-# App Services setup
-setup.txt
+# Mac-specific files
+.DS_Store
+
+# Project specific files
+loghelper/sample-non-stream.log
+loghelper/sample-streaming.log
+loghelper/small_image.jpg
+loghelper/large_image.jpg
+loghelper/image-processing.txt
+loghelper/encoded_image.txt
+
