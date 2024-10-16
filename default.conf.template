@@ -1,4 +1,4 @@
-log_format logger-json escape=json '{"source": "nginx","time": $msec,"resp_body_size": $body_bytes_sent,"host": "$http_host","address": "$remote_addr","request_length": $request_length,"method": "$request_method","uri": "$request_uri","status": $status,"user_agent": "$http_user_agent","resp_time": $request_time,"upstream_addr": "$upstream_addr","request_headers": "$req_header","response_headers": "$resp_header","request_body": "$request_body","response_body": "$resp_body"}';
+log_format logger-json escape=json '{"source": "nginx","time": $msec,"resp_body_size": $body_bytes_sent, "app_id": "$appid","host": "$http_host","address": "$remote_addr","request_length": $request_length,"method": "$request_method","uri": "$request_uri","status": $status,"user_agent": "$http_user_agent","resp_time": $request_time,"upstream_addr": "$upstream_addr","request_headers": "$req_header","response_headers": "$resp_header","request_body": "$request_body","response_body": "$resp_body"}';
 
 server {
     listen 80;
@@ -11,38 +11,95 @@ server {
 
         proxy_buffering off;
         resolver $DNS_SERVER;
-        set $path $http_x_openai_backend;
-        proxy_pass https://$path/openai/$1$is_args$args;
-
+        proxy_pass https://$GEN_AI_GATEWAY_FQDN/openai/$1$is_args$args;
     }
 
     set $req_header "";
     set $resp_header "";
-    header_filter_by_lua_block {
+    set $resp_body "";
+    set $appid "";
 
+    # Extract the application id from the token
+    access_by_lua_block {
+
+        -- Load the cjson library
+        local cjson = require "cjson.safe"
+
+        -- Decode base64url which is how JWTs are encoded
+        local function base64_url_decode(input)
+            input = input:gsub('-', '+'):gsub('_', '/')
+            local padding = #input % 4
+            if padding > 0 then
+                input = input .. string.rep('=', 4 - padding)
+            end
+            return ngx.decode_base64(input)
+        end
+
+        -- Get the request headers
         local h = ngx.req.get_headers()
         for k, v in pairs(h) do
 
             -- Check if the header is Authorization and starts with "Bearer "
-            if k == "authorization" and string.sub(v, 1, 7) == "Bearer " then
+            if k:lower() == "authorization" and v:sub(1, 7):lower() == "bearer " then
+            
+                -- Extract the bearer token
+                local token = v:sub(8)
 
-            -- Remove the bearer token before the authorization header is logged
-                ngx.var.req_header = ngx.var.req_header .. k .. ": Bearer" .. " | ";
+                -- Split the JWT into header, payload, and signature
+                local header_b64, payload_b64, signature_b64 = token:match("([^%.]+)%.([^%.]+)%.([^%.]+)")
+                if not (header_b64 and payload_b64 and signature_b64) then
+                    ngx.log(ngx.ERR, "Invalid JWT format")
+                    return ngx.exit(ngx.HTTP_UNAUTHORIZED)
+                end
+
+                -- Decode the payload
+                local payload_json = base64_url_decode(payload_b64)
+                if not payload_json then
+                    ngx.log(ngx.ERR, "Failed to decode JWT payload")
+                    return ngx.exit(ngx.HTTP_UNAUTHORIZED)
+                end
+
+                 -- Parse the JSON payload
+                local payload, err = cjson.decode(payload_json)
+                if not payload then
+                    ngx.log(ngx.ERR, "Failed to parse JWT payload: ", err)
+                    return ngx.exit(ngx.HTTP_UNAUTHORIZED)
+                end
+
+                -- Extract the 'appid' claim
+                local appid = payload["appid"] or payload["app_id"]
+                if not appid then
+                    ngx.log(ngx.ERR, "'appid' claim not found in JWT")
+                    return ngx.exit(ngx.HTTP_UNAUTHORIZED)
+                end
+
+                -- Store the appid in a variable for logging or further use
+                ngx.var.appid = appid
+                ngx.log(ngx.INFO, "Extracted appid: ", appid)
+
+                -- Ensure the token isn't logged
+                -- ngx.var.req_header = ngx.var.req_header .. k .. ": Bearer" .. " | ";
             else
                 ngx.var.req_header = ngx.var.req_header .. k .. ": " ..  v  .. " | ";
             end
         end
 
+    }
+
+    # Extract the response headers
+    header_filter_by_lua_block {
         local h2 = ngx.resp.get_headers()
         for k2, v2 in pairs(h2) do
             -- Build a string of response headers and separate them by a pipe
             ngx.var.resp_header = ngx.var.resp_header .. k2 .. ": " .. v2 .. " | ";
         end
-
     }
 
-    set $resp_body "";
+    # Capture the response body
     body_filter_by_lua_block {
-        ngx.var.resp_body = ngx.var.resp_body .. ngx.arg[1];
+        ngx.var.resp_body = (ngx.var.resp_body or "") .. (ngx.arg[1] or "")
+        if ngx.arg[2] then
+            -- Final chunk; you can process or log the response body here if needed
+        end
     }
 }

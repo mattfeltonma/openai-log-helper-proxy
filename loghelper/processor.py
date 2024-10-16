@@ -6,7 +6,6 @@ import json
 import asyncio
 import sys
 import uuid
-import tiktoken
 from azure.eventhub import EventData
 from azure.eventhub.aio import EventHubProducerClient
 from opentelemetry._logs import set_logger_provider
@@ -16,6 +15,14 @@ from opentelemetry.sdk._logs import (
 )
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from azure.monitor.opentelemetry.exporter import AzureMonitorLogExporter
+
+# Class to support completion and token usage
+class ChatMessage:
+    def __init__(self, full_response, prompt_tokens, completion_tokens, total_tokens):
+        self.full_response = full_response
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.total_tokens = total_tokens
 
 # Configure an OpenTelemetry logger with support to send to Azure Monitor
 logger_provider = LoggerProvider()
@@ -72,18 +79,13 @@ def parse_response_body(body_str):
                     if 'content' in entry['choices'][0]['delta']:
                         response = response + \
                             entry['choices'][0]['delta']['content']
-    logger.debug("Response body parsed...")
-    return (response)
-
-def num_tokens_from_string(string: str, model_name: str) -> int:
-    if model_name == "not_supported":
-        logging.info("Deployment name does not match a valid model supported by the tokenizer. Setting token count to 0...")
-        return 0
-    else:
-        logging.debug("Calculating number of tokens...")
-        encoding = tiktoken.encoding_for_model(model_name)
-        num_tokens = len(encoding.encode(string))
-        return num_tokens
+        if 'usage' in entry and entry['usage'] != None:
+            p_tokens = entry['usage']['prompt_tokens']
+            c_tokens = entry['usage']['completion_tokens']
+            t_tokens = entry['usage']['total_tokens']
+            
+    logger.debug("Return completion and token usage...")
+    return ChatMessage(response, p_tokens, c_tokens, t_tokens)
 
 # https://medium.com/@aliasav/how-follow-a-file-in-python-tail-f-in-python-bca026a901cf
 def follow(f):
@@ -120,29 +122,15 @@ def main():
                 # Create JSON object from log entry
                 json_log_data = json.loads(raw_log_data)
 
-                # Extract the deployment name. This should be the model name to ensure the correct tokenizer is chosen.
-                # If the deployment name is not supported, the model name will be set to "not_supported" and the tokens used
-                # will be set to 0.
+                # Extract the deployment name. 
                 uri = json_log_data["uri"]
                 match = re.search(r'deployments/([^/]+)/', uri)
-                
-                # Specify valid models supported by the tokenizer
-                valid_models = [
-                    'gpt-35-turbo',
-                    'gpt-4o',
-                    'gpt-4'
-                ]
                 deployment_name = match.group(1)
-                
-                # Check to see if the deployment name matches a valid model and if not set to not_supported
-                if any(valid_model in deployment_name for valid_model in valid_models):
-                    model_name = deployment_name
-                else:
-                    model_name = "not_supported"
+                model_name = deployment_name
    
                 # Extract the prompt from the request body
                 prompt = json.dumps(json.loads(json_log_data["request_body"])[
-                    'messages'][0])
+                    'messages'])
                 
                 # Process completion
                 if json_log_data['status'] == 200:
@@ -158,13 +146,13 @@ def main():
 
                         # Parse the response body to consolidate the events and extract the completion
                         response_body = json_log_data['response_body']
-                        completion = parse_response_body(response_body)
+                        chat_message = parse_response_body(response_body)
+                        completion = chat_message.full_response
                         
-                        # Calculate the number of completion tokens
-                        prompt_tokens = num_tokens_from_string(
-                            prompt, model_name)
-                        completion_tokens = num_tokens_from_string(
-                            completion, model_name)
+                        # Store the token usage
+                        prompt_tokens = chat_message.prompt_tokens
+                        completion_tokens = chat_message.completion_tokens
+                        total_tokens = chat_message.total_tokens
 
                     # Process the non-streaming completion for logging
                     else:
@@ -181,6 +169,8 @@ def main():
                             'usage']['prompt_tokens']
                         completion_tokens = json.loads(json_log_data["response_body"])[
                             'usage']['completion_tokens']
+                        total_tokens = json.loads(json_log_data["response_body"])[
+                            'usage']['total_tokens']
 
                 # Parse the headers
                 request_headers = parse_headers(json_log_data["request_headers"])
@@ -205,6 +195,7 @@ def main():
                         "response_time": json_log_data["resp_time"]
                     }).encode("utf-8"))
                     asyncio.run(send_to_event_hub(event))
+
                     
             except Exception as e:
                 logging.error(f"Error in tailing: {e}")
@@ -212,4 +203,3 @@ def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    main()

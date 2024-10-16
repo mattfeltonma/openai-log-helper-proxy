@@ -1,5 +1,4 @@
 azure-eventhub
 azure-identity
-tiktoken
 opentelemetry-api
 azure-monitor-opentelemetry-exporter
